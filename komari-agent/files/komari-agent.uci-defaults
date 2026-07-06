@@ -1,0 +1,39 @@
+#!/bin/sh
+
+# uci-defaults script for komari-agent
+# Runs on first boot after package install or firmware upgrade.
+#
+# This script ensures the init script is enabled (rc.d symlink created)
+# so that procd will call start_service() on every boot.
+#
+# The actual service startup is controlled by the UCI config:
+#   - /etc/config/komari-agent is preserved during sysupgrade
+#   - start_service() checks 'enabled', 'endpoint', and 'token'
+#   - Service only starts if all required params are configured
+#
+# This guarantees that after a firmware upgrade with "keep settings":
+#   1. The preserved config is loaded
+#   2. The init script runs on boot (via this uci-defaults)
+#   3. The service starts automatically with old configuration
+
+# Only run on the real target, not during build
+[ -x /etc/init.d/komari-agent ] || exit 0
+
+# Enable the init script (creates /etc/rc.d/S99komari-agent symlink)
+/etc/init.d/komari-agent enable
+
+# If config exists and service was previously enabled, start it now
+if [ -f /etc/config/komari-agent ]; then
+	enabled=$(uci -q get komari-agent.main.enabled 2>/dev/null)
+	endpoint=$(uci -q get komari-agent.main.endpoint 2>/dev/null)
+	token=$(uci -q get komari-agent.main.token 2>/dev/null)
+
+	if [ "$enabled" = "1" ] && [ -n "$endpoint" ] && [ -n "$token" ]; then
+		logger -t komari-agent "Configuration detected, starting service..."
+		/etc/init.d/komari-agent start
+	else
+		logger -t komari-agent "Service not started (enabled=$enabled, endpoint configured=$([ -n "$endpoint" ] && echo yes || echo no), token configured=$([ -n "$token" ] && echo yes || echo no))"
+	fi
+fi
+
+exit 0
