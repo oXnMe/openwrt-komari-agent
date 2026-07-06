@@ -1,0 +1,539 @@
+#
+# Copyright (c) 2026 openwrt-komari-agent <https://github.com/oXnMe/openwrt-komari-agent>
+#
+
+name: Auto compile with openwrt sdk
+
+on:
+  repository_dispatch:
+  workflow_dispatch:
+    inputs:
+      ssh:
+        description: 'SSH connection to Actions'
+        required: false
+        default: 'false'
+      build_luci:
+        description: 'Build LuCI packages (luci-app + i18n, noarch)'
+        required: false
+        default: 'false'
+
+env:
+  TZ: Asia/Shanghai
+  repo: ${{ github.repository }}
+  zig_upstream: luodaoyi/komari-zig-agent
+  go_upstream: komari-monitor/komari-agent
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  job_check:
+    name: Check upstream versions
+    runs-on: ubuntu-latest
+    outputs:
+      zig_version: ${{ steps.check_zig.outputs.version }}
+      zig_tag: ${{ steps.check_zig.outputs.upstream_tag }}
+      zig_has_update: ${{ steps.check_zig.outputs.has_update }}
+      go_version: ${{ steps.check_go.outputs.version }}
+      go_tag: ${{ steps.check_go.outputs.upstream_tag }}
+      go_has_update: ${{ steps.check_go.outputs.has_update }}
+      build_luci: ${{ steps.check_meta.outputs.build_luci }}
+      prerelease: ${{ steps.check_meta.outputs.prerelease }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@main
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref_name }}
+
+      - name: Check meta
+        id: check_meta
+        run: |
+          prerelease=$([ "${{ github.ref_name }}" == "main" ] && echo false || echo true)
+          echo "prerelease=${prerelease}" >> $GITHUB_OUTPUT
+          build_luci="${{ github.event.inputs.build_luci }}"
+          [ -z "$build_luci" ] && build_luci="false"
+          echo "build_luci=${build_luci}" >> $GITHUB_OUTPUT
+
+      - name: Check Zig upstream version
+        id: check_zig
+        run: |
+          upstream_tag=$(wget -qO- -t1 -T5 "https://api.github.com/repos/${{ env.zig_upstream }}/releases/latest" | jq -r '.tag_name')
+          if [ -z "$upstream_tag" ] || [ "$upstream_tag" = "null" ]; then
+            echo "version=unknown" >> $GITHUB_OUTPUT
+            echo "has_update=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          version=$(echo "$upstream_tag" | sed 's/^v//')
+          echo "version=${version}" >> $GITHUB_OUTPUT
+          echo "upstream_tag=${upstream_tag}" >> $GITHUB_OUTPUT
+          local_tag="zig-${version}"
+          existing=$(wget -qO- -t1 -T5 "https://api.github.com/repos/${{ env.repo }}/releases/tags/${local_tag}" | jq -r '.tag_name')
+          [ "$existing" = "$local_tag" ] && echo "has_update=false" >> $GITHUB_OUTPUT || echo "has_update=true" >> $GITHUB_OUTPUT
+
+      - name: Check Go upstream version
+        id: check_go
+        run: |
+          upstream_tag=$(wget -qO- -t1 -T5 "https://api.github.com/repos/${{ env.go_upstream }}/releases/latest" | jq -r '.tag_name')
+          if [ -z "$upstream_tag" ] || [ "$upstream_tag" = "null" ]; then
+            echo "version=unknown" >> $GITHUB_OUTPUT
+            echo "upstream_tag=unknown" >> $GITHUB_OUTPUT
+            echo "has_update=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          version=$(echo "$upstream_tag" | sed 's/^v//')
+          echo "version=${version}" >> $GITHUB_OUTPUT
+          echo "upstream_tag=${upstream_tag}" >> $GITHUB_OUTPUT
+          local_tag="go-${version}"
+          existing=$(wget -qO- -t1 -T5 "https://api.github.com/repos/${{ env.repo }}/releases/tags/${local_tag}" | jq -r '.tag_name')
+          [ "$existing" = "$local_tag" ] && echo "has_update=false" >> $GITHUB_OUTPUT || echo "has_update=true" >> $GITHUB_OUTPUT
+
+      - name: Create Zig release
+        if: steps.check_zig.outputs.has_update == 'true' && steps.check_meta.outputs.build_luci != 'true'
+        uses: softprops/action-gh-release@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: zig-${{ steps.check_zig.outputs.version }}
+          target_commitish: ${{ github.ref_name }}
+          prerelease: ${{ steps.check_meta.outputs.prerelease }}
+          body: |
+            ## komari-agent (Zig) ${{ steps.check_zig.outputs.version }}
+
+            Upstream: [${{ env.zig_upstream }}](https://github.com/${{ env.zig_upstream}})
+
+            ### Install (ipk)
+            ```
+            opkg install komari-agent_*.ipk luci-app-komari-agent_*.ipk luci-i18n-komari-agent-zh-cn_*.ipk
+            ```
+            ### Install (apk)
+            ```
+            apk add --allow-untrusted komari-agent-*.apk luci-app-komari-agent-*.apk luci-i18n-komari-agent-zh-cn-*.apk
+            ```
+
+      - name: Create Go release
+        if: steps.check_go.outputs.has_update == 'true' && steps.check_meta.outputs.build_luci != 'true'
+        uses: softprops/action-gh-release@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: go-${{ steps.check_go.outputs.version }}
+          target_commitish: ${{ github.ref_name }}
+          prerelease: ${{ steps.check_meta.outputs.prerelease }}
+          body: |
+            ## komari-agent (Go) ${{ steps.check_go.outputs.version }}
+
+            Upstream: [${{ env.go_upstream }}](https://github.com/${{ env.go_upstream}})
+
+            ### Install (ipk)
+            ```
+            opkg install komari-agent_*.ipk luci-app-komari-agent_*.ipk luci-i18n-komari-agent-zh-cn_*.ipk
+            ```
+            ### Install (apk)
+            ```
+            apk add --allow-untrusted komari-agent-*.apk luci-app-komari-agent-*.apk luci-i18n-komari-agent-zh-cn-*.apk
+            ```
+
+      - name: Create LuCI release
+        if: steps.check_meta.outputs.build_luci == 'true'
+        uses: softprops/action-gh-release@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: luci
+          target_commitish: ${{ github.ref_name }}
+          prerelease: ${{ steps.check_meta.outputs.prerelease }}
+          body: |
+            ## LuCI interface for Komari Agent
+
+            Architecture-independent packages:
+            - `luci-app-komari-agent` — Web configuration interface
+            - `luci-i18n-komari-agent-zh-cn` — Simplified Chinese translation
+
+            These packages work with any `komari-agent` binary release (zig or go).
+
+            ### Install (ipk)
+            ```
+            opkg install luci-app-komari-agent_*.ipk luci-i18n-komari-agent-zh-cn_*.ipk
+            ```
+            ### Install (apk)
+            ```
+            apk add --allow-untrusted luci-app-komari-agent-*.apk luci-i18n-komari-agent-zh-cn-*.apk
+            ```
+
+  job_build_zig:
+    name: zig / ${{ matrix.platform }} [${{ matrix.ver }}]
+    needs: job_check
+    if: needs.job_check.outputs.zig_has_update == 'true' && needs.job_check.outputs.build_luci != 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ver: [ipk, apk]
+        platform: [x86_64, aarch64_generic, aarch64_cortex-a53, arm_cortex-a7_neon-vfpv4, mips_24kc, mipsel_24kc]
+        include:
+          - platform: x86_64
+            sdk_target: x86/64
+          - platform: aarch64_generic
+            sdk_target: rockchip/armv8
+          - platform: aarch64_cortex-a53
+            sdk_target: mvebu/cortexa53
+          - platform: arm_cortex-a7_neon-vfpv4
+            sdk_target: sunxi/cortexa7
+          - platform: mips_24kc
+            sdk_target: ath79/generic
+          - platform: mipsel_24kc
+            sdk_target: ramips/rt288x
+        # ramips/rt288x SDK has a bug in ca-bundle's provides field that
+        # breaks APK packaging. IPK works fine.
+        exclude:
+          - platform: mipsel_24kc
+            ver: apk
+    steps:
+      - name: Checkout
+        uses: actions/checkout@main
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Install build packages
+        run: |
+          sudo -E rm -rf /usr/share/dotnet /etc/mysql /etc/php /usr/local/lib/android
+          sudo -E apt-get -qq update
+          sudo -E apt-get -qq install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
+            bzip2 ccache clang cmake cpio curl device-tree-compiler ecj fastjar flex gawk gettext gcc-multilib \
+            g++-multilib git gnutls-dev gperf haveged help2man intltool lib32gcc-s1 libc6-dev-i386 libelf-dev \
+            libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses-dev libpython3-dev \
+            libreadline-dev libssl-dev libtool libyaml-dev libz-dev lld llvm lrzsz mkisofs msmtp nano \
+            ninja-build p7zip p7zip-full patch pkgconf python3 python3-pip python3-ply python3-docutils \
+            python3-pyelftools qemu-utils re2c rsync scons squashfs-tools subversion swig texinfo uglifyjs \
+            upx-ucl unzip vim wget xmlto xxd zlib1g-dev zstd
+          sudo -E apt-get -qq autoremove --purge
+          sudo -E apt-get -qq clean
+
+      - name: Download OpenWrt SDK (auto-discover)
+        run: |
+          listing_url="https://downloads.openwrt.org/snapshots/targets/${{ matrix.sdk_target }}/"
+          sdk_file=$(wget -qO- "$listing_url" | grep -oE 'openwrt-sdk-[^"]*\.Linux-x86_64\.tar\.(zst|xz)' | sort -u | tail -n1)
+          [ -z "$sdk_file" ] && { echo "ERROR: SDK not found at $listing_url" >&2; exit 1; }
+          url_sdk="${listing_url}${sdk_file}"
+          echo "SDK: $url_sdk"
+          wget "$url_sdk"
+          file_name=$(basename "$url_sdk")
+          mkdir sdk
+          case "$file_name" in *.tar.xz) tar -xJf "$file_name" -C ./sdk --strip-components=1 ;; *.tar.zst) tar --zstd -xf "$file_name" -C ./sdk --strip-components=1 ;; esac
+
+      - name: SSH connection to Actions
+        uses: mxschmitt/action-tmate@v3.13
+        if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh  != 'false') || contains(github.event.action, 'ssh')
+
+      - name: Configure feeds
+        run: |
+          cd sdk
+          if [ "${{ matrix.ver }}" == "ipk" ]; then
+            config_apk_line=$(grep -n "USE_APK" Config-build.in | awk -F ':' '{print $1}')
+            [ -n "$config_apk_line" ] && sed -n $(expr ${config_apk_line} + 2)p Config-build.in | grep "default y" >/dev/null && sed -i "$(expr ${config_apk_line} + 2)s/y/n/" Config-build.in
+          fi
+          sed -i -e 's|git\.openwrt\.org/feed|github.com/openwrt|g' -e 's|git\.openwrt\.org/project|github.com/openwrt|g' -e 's|git\.openwrt\.org/openwrt|github.com/openwrt|g' "feeds.conf.default"
+          echo "src-git komari https://github.com/${{ env.repo }}.git;${{ github.ref_name }}" > feeds.tmp
+          cat feeds.conf.default >> feeds.tmp
+          mv feeds.tmp feeds.conf.default
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Configure build
+        run: |
+          cd sdk
+          echo "CONFIG_ALL_NONSHARED=n" > .config
+          echo "CONFIG_ALL_KMODS=n" >> .config
+          echo "CONFIG_ALL=n" >> .config
+          echo "CONFIG_AUTOREMOVE=n" >> .config
+          echo "CONFIG_SIGNED_PACKAGES=n" >> .config
+          echo "CONFIG_PACKAGE_komari-agent=m" >> .config
+          echo "CONFIG_KOMARI_AGENT_VARIANT_ZIG=y" >> .config
+          make defconfig
+
+      - name: Compile
+        id: compile
+        run: |
+          cd sdk
+          version="${{ needs.job_check.outputs.zig_version }}"
+          tag="${{ needs.job_check.outputs.zig_tag }}"
+          make package/komari-agent/{clean,compile} -j$(nproc) V=s KOMARI_PKG_VERSION=${version} KOMARI_VERSION=${tag} || \
+            make package/komari-agent/{clean,compile} -j1 V=s KOMARI_PKG_VERSION=${version} KOMARI_VERSION=${tag}
+          echo "status=success" >> $GITHUB_OUTPUT
+
+      - name: Collect packages
+        id: organize
+        if: steps.compile.outputs.status == 'success'
+        run: |
+          cd sdk
+          mkdir -p upload
+          PLATFORM="${{ matrix.platform }}"
+          find bin/ -type f \( -name "komari-agent*.ipk" -o -name "komari-agent*.apk" \) | while read -r f; do
+            base=$(basename "$f")
+            if [[ "$base" == komari-agent*.apk && "$base" != *"$PLATFORM"* ]]; then
+              name="${base%.apk}"
+              cp "$f" "upload/${name}_${PLATFORM}.apk"
+            else
+              cp "$f" "upload/$base"
+            fi
+          done
+          ls -la upload/
+          [ "$(ls -1 upload/ | wc -l)" -eq 0 ] && { echo "ERROR: No packages found" >&2; exit 1; }
+          echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+          echo "status=success" >> $GITHUB_OUTPUT
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v3
+        if: steps.organize.outputs.status == 'success'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: zig-${{ needs.job_check.outputs.zig_version }}
+          files: |
+            ${{ env.FIRMWARE }}/upload/*.ipk
+            ${{ env.FIRMWARE }}/upload/*.apk
+
+  job_build_go:
+    name: go / ${{ matrix.platform }} [${{ matrix.ver }}]
+    needs: job_check
+    if: needs.job_check.outputs.go_has_update == 'true' && needs.job_check.outputs.build_luci != 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ver: [ipk, apk]
+        platform: [x86_64, aarch64_generic, aarch64_cortex-a53, arm_cortex-a7_neon-vfpv4]
+        include:
+          - platform: x86_64
+            sdk_target: x86/64
+          - platform: aarch64_generic
+            sdk_target: rockchip/armv8
+          - platform: aarch64_cortex-a53
+            sdk_target: mvebu/cortexa53
+          - platform: arm_cortex-a7_neon-vfpv4
+            sdk_target: sunxi/cortexa7
+    steps:
+      - name: Checkout
+        uses: actions/checkout@main
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Install build packages
+        run: |
+          sudo -E rm -rf /usr/share/dotnet /etc/mysql /etc/php /usr/local/lib/android
+          sudo -E apt-get -qq update
+          sudo -E apt-get -qq install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
+            bzip2 ccache clang cmake cpio curl device-tree-compiler ecj fastjar flex gawk gettext gcc-multilib \
+            g++-multilib git gnutls-dev gperf haveged help2man intltool lib32gcc-s1 libc6-dev-i386 libelf-dev \
+            libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses-dev libpython3-dev \
+            libreadline-dev libssl-dev libtool libyaml-dev libz-dev lld llvm lrzsz mkisofs msmtp nano \
+            ninja-build p7zip p7zip-full patch pkgconf python3 python3-pip python3-ply python3-docutils \
+            python3-pyelftools qemu-utils re2c rsync scons squashfs-tools subversion swig texinfo uglifyjs \
+            upx-ucl unzip vim wget xmlto xxd zlib1g-dev zstd
+          sudo -E apt-get -qq autoremove --purge
+          sudo -E apt-get -qq clean
+
+      - name: Download OpenWrt SDK (auto-discover)
+        run: |
+          listing_url="https://downloads.openwrt.org/snapshots/targets/${{ matrix.sdk_target }}/"
+          sdk_file=$(wget -qO- "$listing_url" | grep -oE 'openwrt-sdk-[^"]*\.Linux-x86_64\.tar\.(zst|xz)' | sort -u | tail -n1)
+          [ -z "$sdk_file" ] && { echo "ERROR: SDK not found at $listing_url" >&2; exit 1; }
+          url_sdk="${listing_url}${sdk_file}"
+          echo "SDK: $url_sdk"
+          wget "$url_sdk"
+          file_name=$(basename "$url_sdk")
+          mkdir sdk
+          case "$file_name" in *.tar.xz) tar -xJf "$file_name" -C ./sdk --strip-components=1 ;; *.tar.zst) tar --zstd -xf "$file_name" -C ./sdk --strip-components=1 ;; esac
+
+      - name: SSH connection to Actions
+        uses: mxschmitt/action-tmate@v3.13
+        if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh  != 'false') || contains(github.event.action, 'ssh')
+
+      - name: Configure feeds
+        run: |
+          cd sdk
+          if [ "${{ matrix.ver }}" == "ipk" ]; then
+            config_apk_line=$(grep -n "USE_APK" Config-build.in | awk -F ':' '{print $1}')
+            [ -n "$config_apk_line" ] && sed -n $(expr ${config_apk_line} + 2)p Config-build.in | grep "default y" >/dev/null && sed -i "$(expr ${config_apk_line} + 2)s/y/n/" Config-build.in
+          fi
+          sed -i -e 's|git\.openwrt\.org/feed|github.com/openwrt|g' -e 's|git\.openwrt\.org/project|github.com/openwrt|g' -e 's|git\.openwrt\.org/openwrt|github.com/openwrt|g' "feeds.conf.default"
+          echo "src-git komari https://github.com/${{ env.repo }}.git;${{ github.ref_name }}" > feeds.tmp
+          cat feeds.conf.default >> feeds.tmp
+          mv feeds.tmp feeds.conf.default
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Configure build
+        run: |
+          cd sdk
+          echo "CONFIG_ALL_NONSHARED=n" > .config
+          echo "CONFIG_ALL_KMODS=n" >> .config
+          echo "CONFIG_ALL=n" >> .config
+          echo "CONFIG_AUTOREMOVE=n" >> .config
+          echo "CONFIG_SIGNED_PACKAGES=n" >> .config
+          echo "CONFIG_PACKAGE_komari-agent=m" >> .config
+          echo "CONFIG_KOMARI_AGENT_VARIANT_GO=y" >> .config
+          make defconfig
+
+      - name: Compile
+        id: compile
+        run: |
+          cd sdk
+          version="${{ needs.job_check.outputs.go_version }}"
+          tag="${{ needs.job_check.outputs.go_tag }}"
+          make package/komari-agent/{clean,compile} -j$(nproc) V=s KOMARI_PKG_VERSION=${version} KOMARI_VERSION=${tag} || \
+            make package/komari-agent/{clean,compile} -j1 V=s KOMARI_PKG_VERSION=${version} KOMARI_VERSION=${tag}
+          echo "status=success" >> $GITHUB_OUTPUT
+
+      - name: Collect packages
+        id: organize
+        if: steps.compile.outputs.status == 'success'
+        run: |
+          cd sdk
+          mkdir -p upload
+          PLATFORM="${{ matrix.platform }}"
+          find bin/ -type f \( -name "komari-agent*.ipk" -o -name "komari-agent*.apk" \) | while read -r f; do
+            base=$(basename "$f")
+            if [[ "$base" == komari-agent*.apk && "$base" != *"$PLATFORM"* ]]; then
+              name="${base%.apk}"
+              cp "$f" "upload/${name}_${PLATFORM}.apk"
+            else
+              cp "$f" "upload/$base"
+            fi
+          done
+          ls -la upload/
+          [ "$(ls -1 upload/ | wc -l)" -eq 0 ] && { echo "ERROR: No packages found" >&2; exit 1; }
+          echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+          echo "status=success" >> $GITHUB_OUTPUT
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v3
+        if: steps.organize.outputs.status == 'success'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: go-${{ needs.job_check.outputs.go_version }}
+          files: |
+            ${{ env.FIRMWARE }}/upload/*.ipk
+            ${{ env.FIRMWARE }}/upload/*.apk
+
+  job_build_luci:
+    name: luci [${{ matrix.ver }}]
+    needs: job_check
+    if: needs.job_check.outputs.build_luci == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ver: [ipk, apk]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@main
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Install build packages
+        run: |
+          sudo -E rm -rf /usr/share/dotnet /etc/mysql /etc/php /usr/local/lib/android
+          sudo -E apt-get -qq update
+          sudo -E apt-get -qq install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
+            bzip2 ccache clang cmake cpio curl device-tree-compiler ecj fastjar flex gawk gettext gcc-multilib \
+            g++-multilib git gnutls-dev gperf haveged help2man intltool lib32gcc-s1 libc6-dev-i386 libelf-dev \
+            libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses-dev libpython3-dev \
+            libreadline-dev libssl-dev libtool libyaml-dev libz-dev lld llvm lrzsz mkisofs msmtp nano \
+            ninja-build p7zip p7zip-full patch pkgconf python3 python3-pip python3-ply python3-docutils \
+            python3-pyelftools qemu-utils re2c rsync scons squashfs-tools subversion swig texinfo uglifyjs \
+            upx-ucl unzip vim wget xmlto xxd zlib1g-dev zstd
+          sudo -E apt-get -qq autoremove --purge
+          sudo -E apt-get -qq clean
+
+      - name: Download OpenWrt SDK (auto-discover)
+        run: |
+          listing_url="https://downloads.openwrt.org/snapshots/targets/x86/64/"
+          sdk_file=$(wget -qO- "$listing_url" | grep -oE 'openwrt-sdk-[^"]*\.Linux-x86_64\.tar\.(zst|xz)' | sort -u | tail -n1)
+          [ -z "$sdk_file" ] && { echo "ERROR: SDK not found at $listing_url" >&2; exit 1; }
+          url_sdk="${listing_url}${sdk_file}"
+          echo "SDK: $url_sdk"
+          wget "$url_sdk"
+          file_name=$(basename "$url_sdk")
+          mkdir sdk
+          case "$file_name" in *.tar.xz) tar -xJf "$file_name" -C ./sdk --strip-components=1 ;; *.tar.zst) tar --zstd -xf "$file_name" -C ./sdk --strip-components=1 ;; esac
+
+      - name: SSH connection to Actions
+        uses: mxschmitt/action-tmate@v3.13
+        if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh  != 'false') || contains(github.event.action, 'ssh')
+
+      - name: Configure feeds
+        run: |
+          cd sdk
+          if [ "${{ matrix.ver }}" == "ipk" ]; then
+            config_apk_line=$(grep -n "USE_APK" Config-build.in | awk -F ':' '{print $1}')
+            [ -n "$config_apk_line" ] && sed -n $(expr ${config_apk_line} + 2)p Config-build.in | grep "default y" >/dev/null && sed -i "$(expr ${config_apk_line} + 2)s/y/n/" Config-build.in
+          fi
+          sed -i -e 's|git\.openwrt\.org/feed|github.com/openwrt|g' -e 's|git\.openwrt\.org/project|github.com/openwrt|g' -e 's|git\.openwrt\.org/openwrt|github.com/openwrt|g' "feeds.conf.default"
+          echo "src-git komari https://github.com/${{ env.repo }}.git;${{ github.ref_name }}" > feeds.tmp
+          cat feeds.conf.default >> feeds.tmp
+          mv feeds.tmp feeds.conf.default
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Configure build
+        run: |
+          cd sdk
+          echo "CONFIG_ALL_NONSHARED=n" > .config
+          echo "CONFIG_ALL_KMODS=n" >> .config
+          echo "CONFIG_ALL=n" >> .config
+          echo "CONFIG_AUTOREMOVE=n" >> .config
+          echo "CONFIG_SIGNED_PACKAGES=n" >> .config
+          echo "CONFIG_PACKAGE_luci-app-komari-agent=m" >> .config
+          echo "CONFIG_LUCI_LANG_zh_Hans=y" >> .config
+          make defconfig
+
+      - name: Compile
+        id: compile
+        run: |
+          cd sdk
+          make package/luci-app-komari-agent/{clean,compile} -j$(nproc) V=s || \
+            make package/luci-app-komari-agent/{clean,compile} -j1 V=s
+          echo "status=success" >> $GITHUB_OUTPUT
+
+      - name: Collect packages
+        id: organize
+        if: steps.compile.outputs.status == 'success'
+        run: |
+          cd sdk
+          mkdir -p upload
+          find bin/ -type f \( -name "luci-app-komari*.ipk" -o -name "luci-app-komari*.apk" \
+            -o -name "luci-i18n-komari*.ipk" -o -name "luci-i18n-komari*.apk" \) | while read -r f; do
+            cp "$f" "upload/$(basename "$f")"
+          done
+          ls -la upload/
+          [ "$(ls -1 upload/ | wc -l)" -eq 0 ] && { echo "ERROR: No packages found" >&2; exit 1; }
+          echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+          echo "status=success" >> $GITHUB_OUTPUT
+
+      - name: Clean old LuCI release assets
+        if: steps.organize.outputs.status == 'success' && matrix.ver == 'ipk'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Cleaning old assets from 'luci' release..."
+          ASSETS=$(gh api repos/${{ env.repo }}/releases/tags/luci --jq '.assets[].id')
+          for aid in $ASSETS; do
+            gh api repos/${{ env.repo }}/releases/assets/$aid -X DELETE >/dev/null 2>&1
+            echo "  deleted asset: $aid"
+          done
+          echo "Cleanup complete."
+
+      - name: Upload to LuCI release
+        uses: softprops/action-gh-release@v3
+        if: steps.organize.outputs.status == 'success'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: luci
+          files: |
+            ${{ env.FIRMWARE }}/upload/*.ipk
+            ${{ env.FIRMWARE }}/upload/*.apk

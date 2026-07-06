@@ -1,0 +1,104 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: zh_CN\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid "Komari Agent"
+msgstr "Komari 监控代理"
+
+msgid "Komari is a lightweight self-hosted server monitoring tool. The agent collects system metrics and reports to the panel. The service will NOT start until you configure the Panel URL and Token, and set Enabled to checked."
+msgstr "Komari 是一款轻量级的自托管服务器监控工具。代理程序采集系统指标并上报到面板。在配置面板地址和 Token 并勾选启用前，服务不会启动。"
+
+msgid "Settings"
+msgstr "设置"
+
+msgid "Enabled"
+msgstr "启用"
+
+msgid "Master switch. The service only starts when this is checked AND both Panel URL and Token are configured."
+msgstr "主开关。只有勾选此项，且面板地址和 Token 都已配置时，服务才会启动。"
+
+msgid "Panel URL"
+msgstr "面板地址"
+
+msgid "Komari panel address, e.g., https://panel.example.com"
+msgstr "Komari 面板地址，例如 https://panel.example.com"
+
+msgid "Token"
+msgstr "Token 令牌"
+
+msgid "Authentication token obtained from the panel"
+msgstr "从面板获取的认证令牌"
+
+msgid "Collection Interval"
+msgstr "采集间隔"
+
+msgid "Data collection interval in seconds. Leave empty to use the agent's built-in default (1s)."
+msgstr "数据采集间隔（秒）。留空使用 agent 内置默认值（1 秒）。"
+
+msgid "Monthly Reset Day"
+msgstr "月重置日"
+
+msgid "Day of month to reset network traffic statistics (1-31). Leave empty to disable traffic statistics."
+msgstr "网络流量统计每月重置日（1-31）。留空不统计流量。"
+
+msgid "Disable Web SSH"
+msgstr "禁用 Web SSH"
+
+msgid "Disable remote SSH access through the web panel"
+msgstr "禁用通过 Web 面板的远程 SSH 访问"
+
+msgid "Ignore Unsafe Certificate"
+msgstr "忽略不安全证书"
+
+msgid "Skip TLS certificate verification (use with self-signed certs)"
+msgstr "跳过 TLS 证书验证（用于自签名证书）"
+
+msgid "Get IP from NIC"
+msgstr "从网卡获取 IP"
+
+msgid "Get the public IP address from network interface instead of external service"
+msgstr "从网络接口获取公网 IP 地址，而非使用外部服务"
+
+msgid "Disable Auto Update"
+msgstr "禁用自动更新"
+
+msgid "Disable automatic agent binary updates"
+msgstr "禁用 agent 二进制自动更新"
+
+msgid "Include Cache Memory"
+msgstr "包含缓存内存"
+
+msgid "Report used memory + buffer/cache memory (default: used memory only)"
+msgstr "上报已用内存 + 缓冲区/缓存内存（默认仅上报已用内存）"
+
+msgid "GPU Monitoring"
+msgstr "GPU 监控"
+
+msgid "Enable detailed GPU monitoring"
+msgstr "启用详细的 GPU 监控"
+
+msgid "Include NICs"
+msgstr "包含网卡"
+
+msgid "Only monitor these network interfaces. Leave empty to monitor all. Multiple interfaces can be selected."
+msgstr "仅监测这些网络接口。留空则监测全部。可多选。"
+
+msgid "Exclude NICs"
+msgstr "排除网卡"
+
+msgid "Exclude these network interfaces from monitoring. Leave empty to exclude none."
+msgstr "从监测中排除这些网络接口。留空则不排除任何接口。"
+
+msgid "Include Mount Points"
+msgstr "包含挂载点"
+
+msgid "Only monitor these mount points. Leave empty to monitor all. Separate multiple entries. You can type custom paths or select from the list."
+msgstr "仅监测这些挂载点。留空则监测全部。可输入自定义路径或从列表选择。"
+
+msgid "Komari Agent - LuCI Configuration Interface"
+msgstr "Komari Agent - LuCI 配置界面"
+
+msgid "Web interface for configuring the Komari monitoring agent."
+msgstr "Komari 监控代理的 Web 配置界面。"
