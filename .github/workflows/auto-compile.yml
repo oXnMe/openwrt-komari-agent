@@ -5,6 +5,8 @@
 name: Auto compile with openwrt sdk
 
 on:
+  schedule:
+    - cron: 0 16 * * *
   repository_dispatch:
   workflow_dispatch:
     inputs:
