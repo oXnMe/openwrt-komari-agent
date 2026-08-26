@@ -1,0 +1,102 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+
+msgid "Komari Agent"
+msgstr ""
+
+msgid "Komari is a lightweight self-hosted server monitoring tool. The agent collects system metrics and reports to the panel. The service will NOT start until you configure the Panel URL and Token, and set Enabled to checked."
+msgstr ""
+
+msgid "Settings"
+msgstr ""
+
+msgid "Enabled"
+msgstr ""
+
+msgid "Master switch. The service only starts when this is checked AND both Panel URL and Token are configured."
+msgstr ""
+
+msgid "Panel URL"
+msgstr ""
+
+msgid "Komari panel address, e.g., https://panel.example.com"
+msgstr ""
+
+msgid "Token"
+msgstr ""
+
+msgid "Authentication token obtained from the panel"
+msgstr ""
+
+msgid "Collection Interval"
+msgstr ""
+
+msgid "Data collection interval in seconds. Leave empty to use the agent's built-in default (1s)."
+msgstr ""
+
+msgid "Monthly Reset Day"
+msgstr ""
+
+msgid "Day of month to reset network traffic statistics (1-31). Leave empty to disable traffic statistics."
+msgstr ""
+
+msgid "Disable Web SSH"
+msgstr ""
+
+msgid "Disable remote SSH access through the web panel"
+msgstr ""
+
+msgid "Ignore Unsafe Certificate"
+msgstr ""
+
+msgid "Skip TLS certificate verification (use with self-signed certs)"
+msgstr ""
+
+msgid "Get IP from NIC"
+msgstr ""
+
+msgid "Get the public IP address from network interface instead of external service"
+msgstr ""
+
+msgid "Disable Auto Update"
+msgstr ""
+
+msgid "Disable automatic agent binary updates"
+msgstr ""
+
+msgid "Include Cache Memory"
+msgstr ""
+
+msgid "Report used memory + buffer/cache memory (default: used memory only)"
+msgstr ""
+
+msgid "GPU Monitoring"
+msgstr ""
+
+msgid "Enable detailed GPU monitoring"
+msgstr ""
+
+msgid "Include NICs"
+msgstr ""
+
+msgid "Only monitor these network interfaces. Leave empty to monitor all. Multiple interfaces can be selected."
+msgstr ""
+
+msgid "Exclude NICs"
+msgstr ""
+
+msgid "Exclude these network interfaces from monitoring. Leave empty to exclude none."
+msgstr ""
+
+msgid "Include Mount Points"
+msgstr ""
+
+msgid "Only monitor these mount points. Leave empty to monitor all. Separate multiple entries. You can type custom paths or select from the list."
+msgstr ""
+
+msgid "Komari Agent - LuCI Configuration Interface"
+msgstr ""
+
+msgid "Web interface for configuring the Komari monitoring agent."
+msgstr ""
