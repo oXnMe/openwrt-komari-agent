@@ -187,8 +187,6 @@ jobs:
             sdk_target: ath79/generic
           - platform: mipsel_24kc
             sdk_target: ramips/rt288x
-        # ramips/rt288x SDK has a bug in ca-bundle's provides field that
-        # breaks APK packaging. IPK works fine.
         exclude:
           - platform: mipsel_24kc
             ver: apk
@@ -540,6 +538,12 @@ jobs:
             ${{ env.FIRMWARE }}/upload/*.ipk
             ${{ env.FIRMWARE }}/upload/*.apk
 
+  job_cleanup:
+    name: Remove old workflow runs
+    runs-on: ubuntu-latest
+    needs: [job_check, job_build_zig, job_build_go, job_build_luci]
+    if: always()
+    steps:
       - name: Remove old workflow runs
         uses: ophub/delete-releases-workflows@main
         with:
