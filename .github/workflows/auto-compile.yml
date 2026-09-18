@@ -37,9 +37,11 @@ jobs:
       zig_version: ${{ steps.check_zig.outputs.version }}
       zig_tag: ${{ steps.check_zig.outputs.upstream_tag }}
       zig_has_update: ${{ steps.check_zig.outputs.has_update }}
+      zig_matrix: ${{ steps.check_zig.outputs.matrix }}
       go_version: ${{ steps.check_go.outputs.version }}
       go_tag: ${{ steps.check_go.outputs.upstream_tag }}
       go_has_update: ${{ steps.check_go.outputs.has_update }}
+      go_matrix: ${{ steps.check_go.outputs.matrix }}
       build_luci: ${{ steps.check_meta.outputs.build_luci }}
       prerelease: ${{ steps.check_meta.outputs.prerelease }}
     steps:
@@ -65,14 +67,67 @@ jobs:
           if [ -z "$upstream_tag" ] || [ "$upstream_tag" = "null" ]; then
             echo "version=unknown" >> $GITHUB_OUTPUT
             echo "has_update=false" >> $GITHUB_OUTPUT
+            echo 'matrix={"include":[]}' >> $GITHUB_OUTPUT
             exit 0
           fi
           version=$(echo "$upstream_tag" | sed 's/^v//')
           echo "version=${version}" >> $GITHUB_OUTPUT
           echo "upstream_tag=${upstream_tag}" >> $GITHUB_OUTPUT
           local_tag="zig-${version}"
-          existing=$(wget -qO- -t1 -T5 "https://api.github.com/repos/${{ env.repo }}/releases/tags/${local_tag}" | jq -r '.tag_name')
-          [ "$existing" = "$local_tag" ] && echo "has_update=false" >> $GITHUB_OUTPUT || echo "has_update=true" >> $GITHUB_OUTPUT
+
+          sdk_target() {
+            case "$1" in
+              x86_64) echo "x86/64" ;;
+              aarch64_generic) echo "rockchip/armv8" ;;
+              aarch64_cortex-a53) echo "mvebu/cortexa53" ;;
+              arm_cortex-a7_neon-vfpv4) echo "sunxi/cortexa7" ;;
+              mips_24kc) echo "ath79/generic" ;;
+              mipsel_24kc) echo "ramips/rt288x" ;;
+            esac
+          }
+          ALL="x86_64:ipk x86_64:apk aarch64_generic:ipk aarch64_generic:apk aarch64_cortex-a53:ipk aarch64_cortex-a53:apk arm_cortex-a7_neon-vfpv4:ipk arm_cortex-a7_neon-vfpv4:apk mips_24kc:ipk mips_24kc:apk mipsel_24kc:ipk"
+
+          build_all=0
+          resp=$(wget -qO- -t2 -T10 "https://api.github.com/repos/${{ env.repo }}/releases/tags/${local_tag}" 2>/dev/null || true)
+          existing=$(printf '%s' "$resp" | jq -r '.tag_name // empty' 2>/dev/null)
+          if [ -z "$existing" ]; then
+            msg=$(printf '%s' "$resp" | jq -r '.message // empty' 2>/dev/null)
+            if [ "$msg" = "Not Found" ]; then
+              echo "Release $local_tag not found -> build all"
+              build_all=1
+            else
+              echo "WARN: cannot determine state of $local_tag (msg='${msg}') -> skip to avoid spurious rebuild"
+              echo "has_update=false" >> $GITHUB_OUTPUT
+              echo 'matrix={"include":[]}' >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          else
+            assets=$(printf '%s' "$resp" | jq -r '.assets[].name')
+          fi
+
+          : > /tmp/matrix_inc
+          missing=""
+          for combo in $ALL; do
+            p="${combo%%:*}"; v="${combo##*:}"
+            need=0
+            if [ "$build_all" = "1" ]; then need=1
+            elif ! printf '%s\n' "$assets" | grep -qE "^komari-agent.*${p}.*\.${v}$"; then need=1
+            fi
+            [ "$need" = "1" ] || continue
+            missing="${missing}${p}:${v} "
+            printf '{"platform":"%s","ver":"%s","sdk_target":"%s"}\n' "$p" "$v" "$(sdk_target "$p")" >> /tmp/matrix_inc
+          done
+
+          if [ -s /tmp/matrix_inc ]; then
+            matrix=$(jq -c -s '{include: .}' /tmp/matrix_inc)
+            echo "To build: ${missing}"
+            echo "has_update=true" >> $GITHUB_OUTPUT
+            echo "matrix=${matrix}" >> $GITHUB_OUTPUT
+          else
+            echo "All packages present -> skip"
+            echo "has_update=false" >> $GITHUB_OUTPUT
+            echo 'matrix={"include":[]}' >> $GITHUB_OUTPUT
+          fi
 
       - name: Check Go upstream version
         id: check_go
@@ -82,14 +137,65 @@ jobs:
             echo "version=unknown" >> $GITHUB_OUTPUT
             echo "upstream_tag=unknown" >> $GITHUB_OUTPUT
             echo "has_update=false" >> $GITHUB_OUTPUT
+            echo 'matrix={"include":[]}' >> $GITHUB_OUTPUT
             exit 0
           fi
           version=$(echo "$upstream_tag" | sed 's/^v//')
           echo "version=${version}" >> $GITHUB_OUTPUT
           echo "upstream_tag=${upstream_tag}" >> $GITHUB_OUTPUT
           local_tag="go-${version}"
-          existing=$(wget -qO- -t1 -T5 "https://api.github.com/repos/${{ env.repo }}/releases/tags/${local_tag}" | jq -r '.tag_name')
-          [ "$existing" = "$local_tag" ] && echo "has_update=false" >> $GITHUB_OUTPUT || echo "has_update=true" >> $GITHUB_OUTPUT
+
+          sdk_target() {
+            case "$1" in
+              x86_64) echo "x86/64" ;;
+              aarch64_generic) echo "rockchip/armv8" ;;
+              aarch64_cortex-a53) echo "mvebu/cortexa53" ;;
+              arm_cortex-a7_neon-vfpv4) echo "sunxi/cortexa7" ;;
+            esac
+          }
+          ALL="x86_64:ipk x86_64:apk aarch64_generic:ipk aarch64_generic:apk aarch64_cortex-a53:ipk aarch64_cortex-a53:apk arm_cortex-a7_neon-vfpv4:ipk arm_cortex-a7_neon-vfpv4:apk"
+
+          build_all=0
+          resp=$(wget -qO- -t2 -T10 "https://api.github.com/repos/${{ env.repo }}/releases/tags/${local_tag}" 2>/dev/null || true)
+          existing=$(printf '%s' "$resp" | jq -r '.tag_name // empty' 2>/dev/null)
+          if [ -z "$existing" ]; then
+            msg=$(printf '%s' "$resp" | jq -r '.message // empty' 2>/dev/null)
+            if [ "$msg" = "Not Found" ]; then
+              echo "Release $local_tag not found -> build all"
+              build_all=1
+            else
+              echo "WARN: cannot determine state of $local_tag (msg='${msg}') -> skip to avoid spurious rebuild"
+              echo "has_update=false" >> $GITHUB_OUTPUT
+              echo 'matrix={"include":[]}' >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          else
+            assets=$(printf '%s' "$resp" | jq -r '.assets[].name')
+          fi
+
+          : > /tmp/matrix_inc
+          missing=""
+          for combo in $ALL; do
+            p="${combo%%:*}"; v="${combo##*:}"
+            need=0
+            if [ "$build_all" = "1" ]; then need=1
+            elif ! printf '%s\n' "$assets" | grep -qE "^komari-agent.*${p}.*\.${v}$"; then need=1
+            fi
+            [ "$need" = "1" ] || continue
+            missing="${missing}${p}:${v} "
+            printf '{"platform":"%s","ver":"%s","sdk_target":"%s"}\n' "$p" "$v" "$(sdk_target "$p")" >> /tmp/matrix_inc
+          done
+
+          if [ -s /tmp/matrix_inc ]; then
+            matrix=$(jq -c -s '{include: .}' /tmp/matrix_inc)
+            echo "To build: ${missing}"
+            echo "has_update=true" >> $GITHUB_OUTPUT
+            echo "matrix=${matrix}" >> $GITHUB_OUTPUT
+          else
+            echo "All packages present -> skip"
+            echo "has_update=false" >> $GITHUB_OUTPUT
+            echo 'matrix={"include":[]}' >> $GITHUB_OUTPUT
+          fi
 
       - name: Create Zig release
         if: steps.check_zig.outputs.has_update == 'true' && steps.check_meta.outputs.build_luci != 'true'
@@ -171,27 +277,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      matrix:
-        ver: [ipk, apk]
-        platform: [x86_64, aarch64_generic, aarch64_cortex-a53, arm_cortex-a7_neon-vfpv4, mips_24kc, mipsel_24kc]
-        include:
-          - platform: x86_64
-            sdk_target: x86/64
-          - platform: aarch64_generic
-            sdk_target: rockchip/armv8
-          - platform: aarch64_cortex-a53
-            sdk_target: mvebu/cortexa53
-          - platform: arm_cortex-a7_neon-vfpv4
-            sdk_target: sunxi/cortexa7
-          - platform: mips_24kc
-            sdk_target: ath79/generic
-          - platform: mipsel_24kc
-            sdk_target: ramips/rt288x
-        # ramips/rt288x SDK has a bug in ca-bundle's provides field that
-        # breaks APK packaging. IPK works fine.
-        exclude:
-          - platform: mipsel_24kc
-            ver: apk
+      matrix: ${{ fromJSON(needs.job_check.outputs.zig_matrix) }}
     steps:
       - name: Checkout
         uses: actions/checkout@main
@@ -287,15 +373,18 @@ jobs:
           echo "status=success" >> $GITHUB_OUTPUT
 
       - name: Upload to release
-        uses: softprops/action-gh-release@v3
+        uses: nick-fields/retry@v3
         if: steps.organize.outputs.status == 'success'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: zig-${{ needs.job_check.outputs.zig_version }}
-          files: |
-            ${{ env.FIRMWARE }}/upload/*.ipk
-            ${{ env.FIRMWARE }}/upload/*.apk
+          max_attempts: 3
+          retry_wait_seconds: 30
+          timeout_minutes: 10
+          command: |
+            cd ${{ env.FIRMWARE }}
+            ls -la upload/
+            gh release upload "zig-${{ needs.job_check.outputs.zig_version }}" upload/* --clobber --repo ${{ env.repo }}
 
   job_build_go:
     name: go / ${{ matrix.platform }} [${{ matrix.ver }}]
@@ -304,18 +393,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      matrix:
-        ver: [ipk, apk]
-        platform: [x86_64, aarch64_generic, aarch64_cortex-a53, arm_cortex-a7_neon-vfpv4]
-        include:
-          - platform: x86_64
-            sdk_target: x86/64
-          - platform: aarch64_generic
-            sdk_target: rockchip/armv8
-          - platform: aarch64_cortex-a53
-            sdk_target: mvebu/cortexa53
-          - platform: arm_cortex-a7_neon-vfpv4
-            sdk_target: sunxi/cortexa7
+      matrix: ${{ fromJSON(needs.job_check.outputs.go_matrix) }}
     steps:
       - name: Checkout
         uses: actions/checkout@main
@@ -411,19 +489,40 @@ jobs:
           echo "status=success" >> $GITHUB_OUTPUT
 
       - name: Upload to release
-        uses: softprops/action-gh-release@v3
+        uses: nick-fields/retry@v3
         if: steps.organize.outputs.status == 'success'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: go-${{ needs.job_check.outputs.go_version }}
-          files: |
-            ${{ env.FIRMWARE }}/upload/*.ipk
-            ${{ env.FIRMWARE }}/upload/*.apk
+          max_attempts: 3
+          retry_wait_seconds: 30
+          timeout_minutes: 10
+          command: |
+            cd ${{ env.FIRMWARE }}
+            ls -la upload/
+            gh release upload "go-${{ needs.job_check.outputs.go_version }}" upload/* --clobber --repo ${{ env.repo }}
+
+  job_clean_luci:
+    name: Clean luci release
+    needs: job_check
+    if: needs.job_check.outputs.build_luci == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete old LuCI release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Deleting existing assets from 'luci' release..."
+          ids=$(gh api "repos/${{ env.repo }}/releases/tags/luci" --jq '.assets[].id' 2>/dev/null || true)
+          for aid in $ids; do
+            gh api "repos/${{ env.repo }}/releases/assets/$aid" -X DELETE >/dev/null 2>&1 || true
+            echo "  deleted asset: $aid"
+          done
+          echo "Cleanup complete."
 
   job_build_luci:
     name: luci [${{ matrix.ver }}]
-    needs: job_check
+    needs: [job_check, job_clean_luci]
     if: needs.job_check.outputs.build_luci == 'true'
     runs-on: ubuntu-latest
     strategy:
@@ -516,32 +615,28 @@ jobs:
           echo "FIRMWARE=$PWD" >> $GITHUB_ENV
           echo "status=success" >> $GITHUB_OUTPUT
 
-      - name: Clean old LuCI release assets
-        if: steps.organize.outputs.status == 'success' && matrix.ver == 'ipk'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          echo "Cleaning old assets from 'luci' release..."
-          ASSETS=$(gh api repos/${{ env.repo }}/releases/tags/luci --jq '.assets[].id')
-          for aid in $ASSETS; do
-            gh api repos/${{ env.repo }}/releases/assets/$aid -X DELETE >/dev/null 2>&1
-            echo "  deleted asset: $aid"
-          done
-          echo "Cleanup complete."
-
       - name: Upload to LuCI release
-        uses: softprops/action-gh-release@v3
+        uses: nick-fields/retry@v3
         if: steps.organize.outputs.status == 'success'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: luci
-          files: |
-            ${{ env.FIRMWARE }}/upload/*.ipk
-            ${{ env.FIRMWARE }}/upload/*.apk
+          max_attempts: 3
+          retry_wait_seconds: 30
+          timeout_minutes: 10
+          command: |
+            cd ${{ env.FIRMWARE }}
+            ls -la upload/
+            gh release upload "luci" upload/* --clobber --repo ${{ env.repo }}
 
+  job_cleanup:
+    name: Remove old workflow runs
+    runs-on: ubuntu-latest
+    needs: [job_check, job_clean_luci, job_build_zig, job_build_go, job_build_luci]
+    if: always()
+    steps:
       - name: Remove old workflow runs
-        uses: ophub/delete-releases-workflows@main
+        uses: ophub/delete-releases-workflows@v0.1.0
         with:
           delete_workflows: true
           workflows_keep_day: 3
